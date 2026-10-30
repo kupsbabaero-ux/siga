@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Sigabo Auto M3U Updater (Aggressive version)
-- Mas maraming source para makuha ang Episode 1 hanggang latest
+Sigabo Auto M3U Updater
+- EPISODE lang ang isasama (hindi highlights, recap, teaser, etc.)
+- Episode 1 hanggang latest
 - HINDI tinatanggal ang existing entries
 - Mag-a-append lang ng mga wala pa
 """
@@ -14,24 +15,20 @@ from datetime import datetime
 
 OUTPUT_FILE = "sigabo.m3u"
 
-# Maraming source para mas kompleto
 SOURCES = [
-    # Official playlists
     "https://www.youtube.com/playlist?list=PLPcB0_P-Zlj7u_vo-pkqn4TcyZ3UkEHfD",
     "https://www.youtube.com/playlist?list=PLPcB0_P-Zlj4PYVq_kWW6FMreGkEEmr_L",
-    # Search (mas maraming resulta)
-    "ytsearch150:Coco Martin's Sigabo",
-    "ytsearch100:Coco Martin Sigabo Episode",
+    "ytsearch200:Coco Martin's Sigabo Episode",
 ]
 
-def run_yt_dlp(url_or_search):
+def run_yt_dlp(src):
     cmd = [
         "yt-dlp",
         "--flat-playlist",
         "--dump-single-json",
         "--no-warnings",
         "--ignore-errors",
-        url_or_search,
+        src,
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -43,30 +40,38 @@ def run_yt_dlp(url_or_search):
         print("ERROR: yt-dlp not found. Install: pip install yt-dlp")
         return []
     except Exception as e:
-        print(f"Warning on {url_or_search[:50]}: {e}")
+        print(f"Warning: {e}")
         return []
 
 def extract_episode_number(title: str) -> int:
-    patterns = [
-        r'(?:episode|ep\.?)\s*(\d+)',
-        r'ep\.?\s*(\d+)',
-        r'#\s*(\d+)',
-        r'ep\s*(\d+)',
-    ]
-    for p in patterns:
-        m = re.search(p, title, re.IGNORECASE)
-        if m:
-            return int(m.group(1))
+    m = re.search(r'(?:episode|ep\.?)\s*(\d+)', title, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
     return 9999
 
-def is_sigabo_video(title: str) -> bool:
+def is_real_episode(title: str) -> bool:
+    """Episode lang — i-reject ang highlights, recap, teaser, behind the scenes, etc."""
     t = title.lower()
-    # Mas maluwag na filter
-    if "sigabo" in t:
-        return True
-    if "coco martin" in t and ("episode" in t or "ep." in t or "ep " in t):
-        return True
-    return False
+
+    # Must contain sigabo + episode/ep
+    if "sigabo" not in t:
+        return False
+    if not re.search(r'(?:episode|ep\.?)\s*\d+', t):
+        return False
+
+    # Reject non-episode content
+    reject_keywords = [
+        "highlight", "highlights", "recap", "teaser", "trailer",
+        "behind the scenes", "bts", "exclusive", "interview",
+        "scene rewind", "trending scene", "quick feel", "reaction",
+        "review", "preview", "promo", "cast", "meet the",
+        "making of", "bloopers", "outtake"
+    ]
+    for kw in reject_keywords:
+        if kw in t:
+            return False
+
+    return True
 
 def load_existing(filepath):
     existing_ids = set()
@@ -90,20 +95,18 @@ def make_extinf(title: str) -> str:
     return f'#EXTINF:-1 tvg-id="sigabo" group-title="Kapamilya - Sigabo",{clean}'
 
 def main():
-    print(f"[{datetime.now()}] Sigabo updater (aggressive mode)")
-    print("Mode: KEEP ALL existing + ADD missing only\n")
+    print(f"[{datetime.now()}] Sigabo updater")
+    print("Mode: EPISODE only + keep existing + append new\n")
 
     existing_ids, existing_lines = load_existing(OUTPUT_FILE)
     print(f"Existing videos: {len(existing_ids)}")
 
     all_entries = []
     for src in SOURCES:
-        print(f"Fetching → {src[:70]}...")
+        print(f"Fetching → {src[:65]}...")
         entries = run_yt_dlp(src)
-        print(f"   got {len(entries)} entries")
+        print(f"   got {len(entries)}")
         all_entries.extend(entries)
-
-    print(f"\nTotal raw entries collected: {len(all_entries)}")
 
     new_videos = []
     seen = set(existing_ids)
@@ -115,7 +118,7 @@ def main():
         vid = e.get("id")
         if not vid or not title or vid in seen:
             continue
-        if not is_sigabo_video(title):
+        if not is_real_episode(title):
             continue
 
         seen.add(vid)
@@ -126,27 +129,25 @@ def main():
             "ep": extract_episode_number(title)
         })
 
-    # Sort new ones
     new_videos.sort(key=lambda x: (x["ep"], x["title"]))
 
-    print(f"New unique Sigabo videos to add: {len(new_videos)}")
+    print(f"\nNew real episodes to add: {len(new_videos)}")
 
     if not new_videos:
-        print("Walang bagong maidagdag. Existing M3U is safe (walang tinanggal).")
+        print("Walang bagong episode. Existing M3U is safe (walang tinanggal).")
         return
 
-    # Build final content
     if existing_lines:
         lines = existing_lines[:]
         while lines and lines[-1].strip() == "":
             lines.pop()
         lines.append("")
-        lines.append(f"# --- Added {len(new_videos)} new episodes on {datetime.now().isoformat()} ---")
+        lines.append(f"# --- Added {len(new_videos)} episodes on {datetime.now().isoformat()} ---")
     else:
         lines = [
             "#EXTM3U",
             f"# Generated: {datetime.now().isoformat()}",
-            "# Mode: never removes existing entries",
+            "# Mode: episode only + never removes existing",
             "# Format: pure youtube.com/watch?v= links",
             ""
         ]
@@ -159,8 +160,7 @@ def main():
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
-    print(f"\nDone!")
-    print(f"Added: {len(new_videos)}")
+    print(f"Done. Added {len(new_videos)} episodes.")
     print(f"Total unique now: {len(existing_ids) + len(new_videos)}")
     print("Existing entries were NOT removed.")
 
