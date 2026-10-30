@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Sigabo Auto M3U Updater
-- Kinukuha ang LAHAT ng episode mula Episode 1 hanggang latest
+Sigabo Auto M3U Updater (Aggressive version)
+- Mas maraming source para makuha ang Episode 1 hanggang latest
 - HINDI tinatanggal ang existing entries
-- Mag-a-append lang ng mga bagong video na wala pa sa listahan
-- Pure https://www.youtube.com/watch?v=VIDEO_ID format
+- Mag-a-append lang ng mga wala pa
 """
 
 import subprocess
@@ -13,54 +12,63 @@ import os
 import re
 from datetime import datetime
 
-# ============== CONFIG ==============
-# Primary official playlist
-PLAYLIST_URLS = [
-    "https://www.youtube.com/playlist?list=PLPcB0_P-Zlj7u_vo-pkqn4TcyZ3UkEHfD",  # Main
-    "https://www.youtube.com/playlist?list=PLPcB0_P-Zlj4PYVq_kWW6FMreGkEEmr_L",  # Kapamilya Online Live
+OUTPUT_FILE = "sigabo.m3u"
+
+# Maraming source para mas kompleto
+SOURCES = [
+    # Official playlists
+    "https://www.youtube.com/playlist?list=PLPcB0_P-Zlj7u_vo-pkqn4TcyZ3UkEHfD",
+    "https://www.youtube.com/playlist?list=PLPcB0_P-Zlj4PYVq_kWW6FMreGkEEmr_L",
+    # Search (mas maraming resulta)
+    "ytsearch150:Coco Martin's Sigabo",
+    "ytsearch100:Coco Martin Sigabo Episode",
 ]
 
-OUTPUT_FILE = "sigabo.m3u"
-# ====================================
-
-def run_yt_dlp(url):
-    """Fetch playlist entries"""
+def run_yt_dlp(url_or_search):
     cmd = [
         "yt-dlp",
         "--flat-playlist",
         "--dump-single-json",
         "--no-warnings",
-        url,
+        "--ignore-errors",
+        url_or_search,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-        if result.returncode != 0:
-            print(f"Warning: yt-dlp error for {url[:60]}...")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if not result.stdout.strip():
             return []
         data = json.loads(result.stdout)
         return data.get("entries", []) or []
     except FileNotFoundError:
-        print("ERROR: yt-dlp not found. Install with:  pip install yt-dlp")
+        print("ERROR: yt-dlp not found. Install: pip install yt-dlp")
         return []
     except Exception as e:
-        print(f"ERROR: {e}")
+        print(f"Warning on {url_or_search[:50]}: {e}")
         return []
 
 def extract_episode_number(title: str) -> int:
-    """Extract episode number for sorting"""
     patterns = [
         r'(?:episode|ep\.?)\s*(\d+)',
         r'ep\.?\s*(\d+)',
-        r'#(\d+)',
+        r'#\s*(\d+)',
+        r'ep\s*(\d+)',
     ]
     for p in patterns:
-        match = re.search(p, title, re.IGNORECASE)
-        if match:
-            return int(match.group(1))
+        m = re.search(p, title, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
     return 9999
 
-def load_existing_ids(filepath):
-    """Basahin ang existing M3U at kunin ang lahat ng video IDs (para hindi ma-duplicate / ma-remove)"""
+def is_sigabo_video(title: str) -> bool:
+    t = title.lower()
+    # Mas maluwag na filter
+    if "sigabo" in t:
+        return True
+    if "coco martin" in t and ("episode" in t or "ep." in t or "ep " in t):
+        return True
+    return False
+
+def load_existing(filepath):
     existing_ids = set()
     existing_lines = []
     if not os.path.exists(filepath):
@@ -68,56 +76,48 @@ def load_existing_ids(filepath):
 
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
-
-    # Keep the whole file content so we never lose anything
     existing_lines = content.strip().splitlines()
 
     for line in existing_lines:
-        line = line.strip()
         if "youtube.com/watch?v=" in line:
-            match = re.search(r'v=([a-zA-Z0-9_-]{11})', line)
-            if match:
-                existing_ids.add(match.group(1))
+            m = re.search(r'v=([a-zA-Z0-9_-]{11})', line)
+            if m:
+                existing_ids.add(m.group(1))
     return existing_ids, existing_lines
 
 def make_extinf(title: str) -> str:
-    clean_title = title.replace("|", "-").strip()
-    return f'#EXTINF:-1 tvg-id="sigabo" group-title="Kapamilya - Sigabo",{clean_title}'
+    clean = title.replace("|", "-").strip()
+    return f'#EXTINF:-1 tvg-id="sigabo" group-title="Kapamilya - Sigabo",{clean}'
 
 def main():
-    print(f"[{datetime.now()}] Starting Sigabo updater...")
-    print("Mode: KEEP ALL existing + ADD new episodes only (walang tinatanggal)")
+    print(f"[{datetime.now()}] Sigabo updater (aggressive mode)")
+    print("Mode: KEEP ALL existing + ADD missing only\n")
 
-    # 1. Load existing M3U (para hindi mawala ang kahit anong entry)
-    existing_ids, existing_lines = load_existing_ids(OUTPUT_FILE)
-    print(f"Existing videos sa M3U: {len(existing_ids)}")
+    existing_ids, existing_lines = load_existing(OUTPUT_FILE)
+    print(f"Existing videos: {len(existing_ids)}")
 
-    # 2. Fetch from all playlists
     all_entries = []
-    for url in PLAYLIST_URLS:
-        print(f"Fetching: {url}")
-        entries = run_yt_dlp(url)
+    for src in SOURCES:
+        print(f"Fetching → {src[:70]}...")
+        entries = run_yt_dlp(src)
+        print(f"   got {len(entries)} entries")
         all_entries.extend(entries)
-        print(f"  → {len(entries)} entries")
 
-    if not all_entries:
-        print("No new data from playlists. Existing M3U is kept as-is.")
-        return
+    print(f"\nTotal raw entries collected: {len(all_entries)}")
 
-    # 3. Collect new videos only
     new_videos = []
     seen = set(existing_ids)
 
     for e in all_entries:
+        if not e:
+            continue
         title = (e.get("title") or "").strip()
         vid = e.get("id")
-        if not vid or not title:
+        if not vid or not title or vid in seen:
             continue
-        if vid in seen:
+        if not is_sigabo_video(title):
             continue
-        # Accept anything that looks like Sigabo episode
-        if "sigabo" not in title.lower():
-            continue
+
         seen.add(vid)
         new_videos.append({
             "id": vid,
@@ -126,35 +126,28 @@ def main():
             "ep": extract_episode_number(title)
         })
 
-    # Sort new ones by episode number
+    # Sort new ones
     new_videos.sort(key=lambda x: (x["ep"], x["title"]))
 
-    print(f"New Sigabo videos found: {len(new_videos)}")
+    print(f"New unique Sigabo videos to add: {len(new_videos)}")
 
-    if not new_videos and existing_lines:
-        print("Walang bagong episode. Existing M3U is untouched.")
+    if not new_videos:
+        print("Walang bagong maidagdag. Existing M3U is safe (walang tinanggal).")
         return
 
-    # 4. Build final M3U
-    # Keep header + all previous content, then append new ones
-    lines = []
-
+    # Build final content
     if existing_lines:
-        # Keep everything that was already there
         lines = existing_lines[:]
-        # Remove trailing empty lines
         while lines and lines[-1].strip() == "":
             lines.pop()
         lines.append("")
-        lines.append(f"# --- New episodes added: {datetime.now().isoformat()} ---")
+        lines.append(f"# --- Added {len(new_videos)} new episodes on {datetime.now().isoformat()} ---")
     else:
-        # First time create
         lines = [
             "#EXTM3U",
             f"# Generated: {datetime.now().isoformat()}",
-            "# Source: Official ABS-CBN Entertainment playlists",
-            "# Format: pure youtube.com/watch?v= links",
             "# Mode: never removes existing entries",
+            "# Format: pure youtube.com/watch?v= links",
             ""
         ]
 
@@ -163,12 +156,12 @@ def main():
         lines.append(v["url"])
         lines.append("")
 
-    # Write back
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
-    print(f"Done. Added {len(new_videos)} new videos.")
-    print(f"Total unique videos now: {len(existing_ids) + len(new_videos)}")
+    print(f"\nDone!")
+    print(f"Added: {len(new_videos)}")
+    print(f"Total unique now: {len(existing_ids) + len(new_videos)}")
     print("Existing entries were NOT removed.")
 
 if __name__ == "__main__":
