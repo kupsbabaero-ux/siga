@@ -1,0 +1,12 @@
+#EXTM3U
+# Generated: sample - run update_sigabo.py to refresh
+# Format: pure youtube.com/watch?v= links (as requested)
+
+#EXTINF:-1 tvg-id="sigabo" group-title="Kapamilya - Sigabo",Coco Martin's Sigabo | Episode 93 (1/3) | October 28, 2026
+https://www.youtube.com/watch?v=TEKHcbJtwHg
+
+#EXTINF:-1 tvg-id="sigabo" group-title="Kapamilya - Sigabo",Coco Martin's Sigabo | Episode 91 (1/3) | October 26, 2026
+https://www.youtube.com/watch?v=FntfGYs33Nk
+
+#EXTINF:-1 tvg-id="sigabo" group-title="Kapamilya - Sigabo",Coco Martin's Sigabo | Episode 90 (1/3) | October 23, 2026
+https://www.youtube.com/watch?v=fJvr17hSOEY
