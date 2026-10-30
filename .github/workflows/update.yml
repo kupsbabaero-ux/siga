@@ -1,8 +1,8 @@
-name: Update Sigabo M3U
+name: Update Sigabo M3U (All Episodes)
 
 on:
   schedule:
-    # Runs every day at 01:00 UTC (change as needed)
+    # Runs every day at 01:00 UTC
     - cron: "0 1 * * *"
   workflow_dispatch:   # allows manual run from Actions tab
 
@@ -24,7 +24,7 @@ jobs:
       - name: Install yt-dlp
         run: pip install yt-dlp
 
-      - name: Run updater
+      - name: Run updater (ALL episodes Episode 1 → latest)
         run: python update_sigabo.py
 
       - name: Commit and push if changed
@@ -35,6 +35,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes"
           else
-            git commit -m "Auto-update Sigabo M3U $(date -u +%Y-%m-%d)"
+            git commit -m "Auto-update Sigabo M3U - All episodes $(date -u +%Y-%m-%d)"
             git push
           fi
